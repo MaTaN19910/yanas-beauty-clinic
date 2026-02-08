@@ -1,47 +1,78 @@
 # Yana's Beauty Clinic
 
-A responsive static website for a professional eyelash extension and eyebrow shaping business, containerized with Docker and served via Nginx. Deployed through a CI/CD pipeline with GitHub Actions and Cloudflare Tunnel.
+A responsive static website for a professional eyelash extension and eyebrow shaping business. Features a full DevOps stack: Docker/Nginx containerization, Prometheus + Grafana monitoring, CI/CD via GitHub Actions, Cloudflare Tunnel with automatic failover to Cloudflare Pages.
 
 ## Architecture
 
 ```
-Client → Cloudflare Tunnel → Docker (Nginx) → Static HTML/CSS/JS
+                         ┌──────────────────┐
+                         │    Cloudflare     │
+                         │   Health Check    │
+                         └────────┬─────────┘
+                                  │
+                  ┌───────────────┼───────────────┐
+                  ▼                               ▼
+       ┌───────────────────┐           ┌───────────────────┐
+       │  Primary Origin   │           │ Failover Origin   │
+       │  Home Server      │           │ Cloudflare Pages  │
+       │  (Tunnel)         │           │ (Auto-deployed)   │
+       └────────┬──────────┘           └───────────────────┘
+                │
+    ┌───────────┼───────────┐
+    ▼           ▼           ▼
+┌────────┐ ┌────────┐ ┌──────────┐
+│ Nginx  │ │Promethe│ │ Grafana  │
+│        │ │  us    │ │          │
+└────────┘ └────────┘ └──────────┘
 ```
 
 ```
-├── index.html              # Homepage
-├── services.html           # Services & pricing
-├── gallery.html            # Portfolio gallery
-├── contact.html            # Contact & booking
-├── css/style.css           # Styles (mobile-first, responsive)
-├── js/main.js              # Interactivity
-├── nginx/nginx.conf        # Nginx config (gzip, caching, security headers)
-├── Dockerfile              # Multi-stage Nginx Alpine container
-├── docker-compose.yml      # Container orchestration
+├── index.html                          # Homepage (Hebrew RTL)
+├── services.html                       # Services & pricing
+├── gallery.html                        # Portfolio gallery
+├── contact.html                        # Contact & booking
+├── css/style.css                       # Styles (mobile-first, RTL)
+├── js/main.js                          # Interactivity
+├── nginx/nginx.conf                    # Nginx config (gzip, caching, security, metrics)
+├── Dockerfile                          # Nginx Alpine container
+├── docker-compose.yml                  # Full stack orchestration
+├── monitoring/
+│   ├── prometheus/prometheus.yml        # Prometheus scrape config
+│   └── grafana/
+│       ├── provisioning/               # Auto-configured datasources & dashboards
+│       └── dashboards/nginx.json       # Pre-built Nginx dashboard
 └── .github/workflows/
-    └── ci-cd.yml           # CI/CD pipeline (lint → build → deploy)
+    └── ci-cd.yml                       # CI/CD: lint → build → deploy (primary + failover)
 ```
 
 ## Tech Stack
 
-| Layer          | Technology                     |
-|----------------|--------------------------------|
-| Frontend       | HTML5, CSS3, JavaScript        |
-| Web Server     | Nginx 1.27 (Alpine)            |
-| Containerization | Docker, Docker Compose       |
-| CI/CD          | GitHub Actions                 |
-| Reverse Proxy  | Cloudflare Tunnel              |
-| DNS/CDN        | Cloudflare                     |
+| Layer          | Technology                          |
+|----------------|-------------------------------------|
+| Frontend       | HTML5, CSS3, JavaScript (Hebrew RTL)|
+| Web Server     | Nginx 1.27 (Alpine)                 |
+| Containerization | Docker, Docker Compose            |
+| Monitoring     | Prometheus + Grafana                |
+| CI/CD          | GitHub Actions                      |
+| Primary Host   | Cloudflare Tunnel (home server)     |
+| Failover Host  | Cloudflare Pages (auto-deployed)    |
+| DNS/CDN/WAF    | Cloudflare                          |
 
 ## Quick Start
 
-### Run locally
+### Run full stack
 ```bash
 docker compose up -d
 ```
-Site available at `http://localhost:8090`
+| Service  | URL                      |
+|----------|--------------------------|
+| Website  | http://localhost:8090     |
+| Grafana  | http://localhost:3000     |
+| Prometheus | http://localhost:9090   |
 
-### Build only
+Grafana default login: `admin` / `admin`
+
+### Run website only
 ```bash
 docker build -t yanas-beauty-clinic .
 docker run -p 8090:80 yanas-beauty-clinic
@@ -51,9 +82,35 @@ docker run -p 8090:80 yanas-beauty-clinic
 
 The GitHub Actions pipeline runs on every push to `main`:
 
+```
+Push to main
+    │
+    ▼
+┌─────────┐     ┌─────────────┐     ┌──────────────────┐
+│  Lint   │────▶│  Build &    │────▶│  Deploy Primary  │
+│  HTML   │     │  Test       │     │  (SSH → Docker)  │
+└─────────┘     └─────────────┘     └──────────────────┘
+                                             │
+                                    ┌──────────────────┐
+                                    │ Deploy Failover  │
+                                    │ (Cloudflare Pages)│
+                                    └──────────────────┘
+```
+
 1. **Lint** - Validates HTML/CSS
 2. **Build** - Builds Docker image with caching, runs smoke tests against all pages
-3. **Deploy** - SSHs into the server, pulls latest code, rebuilds and restarts the container
+3. **Deploy Primary** - SSHs into home server, pulls latest code, rebuilds containers
+4. **Deploy Failover** - Deploys static site to Cloudflare Pages (parallel with primary)
+
+## Monitoring
+
+Prometheus scrapes Nginx metrics via `nginx-prometheus-exporter`. Grafana provides a pre-configured dashboard with:
+
+- Active connections (real-time graph)
+- Requests per second
+- Connection states (reading/writing/waiting)
+- Nginx UP/DOWN status indicator
+- Total request count
 
 ## Cloudflare Tunnel Setup
 
@@ -69,29 +126,24 @@ ingress:
 
 Then create a CNAME record in Cloudflare DNS pointing `beauty` to your tunnel.
 
-## Nginx Features
+## Failover Strategy
 
-- Gzip compression for text assets
-- Static asset caching (7 days CSS/JS, 30 days images)
-- Security headers (X-Frame-Options, X-Content-Type-Options, XSS Protection)
-- Clean URLs (`.html` extension optional)
-- Health check endpoint
+When the home server goes down (power outage), Cloudflare detects the tunnel is unhealthy and can route traffic to the Cloudflare Pages deployment, which is always up-to-date via CI/CD.
 
 ## Configuration
 
-Before deploying, update these placeholders:
+Update this placeholder across all HTML files:
 
-| Placeholder | File(s) | Replace With |
-|-------------|---------|--------------|
-| `YOUR_BOOKING_PAGE` | All HTML files | Your Calmark booking URL |
-| `+972-XX-XXX-XXXX` | contact.html | Business phone number |
-| `info@yanasbeauty.com` | contact.html | Business email |
-| `Your address here` | contact.html | Business address |
+| Placeholder | Replace With |
+|-------------|--------------|
+| `YOUR_BOOKING_PAGE` | Your Calmark booking URL |
 
 ### GitHub Secrets (for CI/CD)
 
 | Secret | Description |
 |--------|-------------|
-| `SSH_HOST` | Server IP or hostname |
+| `SSH_HOST` | Home server IP or hostname |
 | `SSH_USER` | SSH username |
 | `SSH_PRIVATE_KEY` | SSH private key for deployment |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token (Pages deploy) |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |

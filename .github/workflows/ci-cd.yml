@@ -52,8 +52,24 @@ jobs:
           echo "All pages responding successfully"
           docker stop test-container
 
-  deploy:
-    name: Deploy
+  deploy-failover:
+    name: Deploy Failover (Cloudflare Pages)
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy . --project-name=yanas-beauty-clinic --branch=main
+
+  deploy-primary:
+    name: Deploy Primary (Home Server)
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
