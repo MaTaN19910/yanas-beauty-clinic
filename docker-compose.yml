@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    container_name: yanas-beauty-clinic
+    restart: unless-stopped
+    ports:
+      - "8090:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
